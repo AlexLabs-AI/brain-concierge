@@ -61,7 +61,10 @@ async function gbrainCall(toolName, args) {
       res.on("data", c => data += c);
       res.on("end", () => {
         try {
-          const parsed = JSON.parse(data);
+          // GBrain HTTP MCP server returns SSE format: "event: message\ndata: {...}"
+          // Strip the SSE envelope before parsing JSON
+          const jsonStr = data.replace(/^event:\s*\w+\s*\ndata:\s*/m, "").trim();
+          const parsed = JSON.parse(jsonStr);
           if (parsed.result?.content?.[0]?.text) {
             resolve(parsed.result.content[0].text);
           } else {
