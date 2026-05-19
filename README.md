@@ -16,9 +16,10 @@ Instead of search-first, Brain Concierge uses **task-first retrieval**:
 
 ```
 brain_concierge(
-  task="I am Atlas, about to design the curriculum ingestion pipeline. 
-        My goal is idempotent PDF processing with extraction quality guarantees.",
-  agent_role="agentic engineer"
+  task="I am about to respond to a churn risk alert for a $120K ARR account. 
+        The customer cited slow onboarding and lack of integrations. 
+        My goal is to build a retention plan that addresses both concerns.",
+  agent_role="customer success manager"
 )
 ```
 
