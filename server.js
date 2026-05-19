@@ -65,7 +65,9 @@ async function gbrainCall(toolName, args) {
           // Strip the SSE envelope before parsing JSON
           const jsonStr = data.replace(/^event:\s*\w+\s*\ndata:\s*/m, "").trim();
           const parsed = JSON.parse(jsonStr);
-          if (parsed.result?.content?.[0]?.text) {
+          if (parsed.error) {
+            reject(new Error(`GBrain error: ${parsed.error.message || JSON.stringify(parsed.error)}`));
+          } else if (parsed.result?.content?.[0]?.text) {
             resolve(parsed.result.content[0].text);
           } else {
             resolve("");
@@ -193,8 +195,15 @@ async function brainConcierge(task, agentRole, depth, includeSlugPrefixes) {
     : (q) => ({ query: q, limit });
 
   const results = await Promise.allSettled(
-    queries.map(q => gbrainCall("query", args(q)).catch(() => ""))
+    queries.map(q => gbrainCall("query", args(q)))
   );
+
+  // Check if all queries failed (vs just returning no results)
+  const allFailed = results.every(r => r.status === "rejected");
+  if (allFailed) {
+    const firstError = results[0].reason?.message || "Unknown error";
+    return `Retrieval error: all GBrain queries failed. First error: ${firstError}\n\nCheck that the GBrain server is reachable and GBRAIN_TOKEN is valid.`;
+  }
 
   // 3. Deduplicate and collect chunks
   const seen = new Set();
@@ -283,7 +292,18 @@ const server = http.createServer(async (req, res) => {
     }
 
     let body = "";
-    req.on("data", c => body += c);
+    let bodyBytes = 0;
+    const MAX_BODY = 1024 * 512; // 512 KB — more than enough for any MCP JSON-RPC message
+    req.on("data", c => {
+      bodyBytes += c.length;
+      if (bodyBytes > MAX_BODY) {
+        req.destroy();
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "request_too_large" }));
+        return;
+      }
+      body += c;
+    });
     req.on("end", async () => {
       try {
         const rpc = JSON.parse(body);

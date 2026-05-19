@@ -136,11 +136,7 @@ brain_concierge(
 
 ### Additional tools
 
-- `brain_search` — Direct keyword search
-- `brain_query` — Direct vector query
-- `brain_get` — Retrieve a specific page by slug
-- `brain_list` — List pages with filters
-- `brain_stats` — Brain statistics
+`brain_stats`, `brain_search`, `brain_query`, `brain_get`, and `brain_list` are planned for a future release. Track progress in [Issues](https://github.com/AlexLabs-AI/brain-concierge/issues).
 
 ---
 
