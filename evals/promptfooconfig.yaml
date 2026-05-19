@@ -60,7 +60,7 @@ providers:
             }
           }
         }
-      transformResponse: "json?.result?.content?.[0]?.text || text"
+      transformResponse: "file://evals/gbrain-transform.js"
 
 # ─── Shared defaults ──────────────────────────────────────────────────────────
 
