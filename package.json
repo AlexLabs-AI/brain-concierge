@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Task-first knowledge retrieval for multi-agent AI systems",
   "main": "server.js",
-  "type": "module",
   "engines": {
     "node": ">=18.0.0"
   },
@@ -15,7 +14,15 @@
     "@modelcontextprotocol/sdk": "^1.11.0",
     "express": "^4.18.0"
   },
-  "keywords": ["mcp", "ai", "knowledge-base", "rag", "multi-agent", "gbrain", "openclaw"],
+  "keywords": [
+    "mcp",
+    "ai",
+    "knowledge-base",
+    "rag",
+    "multi-agent",
+    "gbrain",
+    "openclaw"
+  ],
   "license": "MIT",
   "homepage": "https://github.com/AlexLabs-AI/brain-concierge",
   "repository": {

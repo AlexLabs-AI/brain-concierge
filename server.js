@@ -229,7 +229,7 @@ const TOOLS = [
       properties: {
         task: {
           type: "string",
-          description: "Describe your task in plain language. Include your role, goal, and constraints. Example: 'I am Atlas, about to design the curriculum ingestion pipeline. My goal is idempotent PDF processing with extraction quality guarantees.'"
+          description: "Describe your task in plain language. Include your role, goal, and constraints. Example: 'I am about to respond to a churn risk alert for a high-value account. The customer cited slow onboarding and missing integrations. My goal is to build a retention plan that addresses both.'"
         },
         agent_role: {
           type: "string",
