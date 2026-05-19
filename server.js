@@ -52,6 +52,7 @@ async function gbrainCall(toolName, args) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
         "Authorization": `Bearer ${GBRAIN_TOKEN}`,
         "Content-Length": Buffer.byteLength(body)
       },
