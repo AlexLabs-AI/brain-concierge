@@ -173,7 +173,17 @@ Synthesize a knowledge briefing for this agent.`;
       res.on("end", () => {
         try {
           const parsed = JSON.parse(data);
-          resolve(parsed.content?.[0]?.text || "Synthesis failed.");
+          if (res.statusCode !== 200) {
+            const errMsg = parsed.error?.message || parsed.error?.type || `HTTP ${res.statusCode}`;
+            reject(new Error(`Anthropic API error: ${errMsg}`));
+            return;
+          }
+          const text = parsed.content?.[0]?.text;
+          if (!text) {
+            reject(new Error("Anthropic returned no content"));
+            return;
+          }
+          resolve(text);
         } catch (e) { reject(e); }
       });
     });
@@ -286,7 +296,12 @@ async function brainConcierge(task, agentRole, depth, includeSlugPrefixes) {
 
   // Synthesize briefing
   const combined = chunks.join("\n\n---\n\n").slice(0, 12000);
-  const briefing = await synthesize(task, agentRole, combined);
+  let briefing;
+  try {
+    briefing = await synthesize(task, agentRole, combined);
+  } catch (e) {
+    throw new Error(`Synthesis failed: ${e.message}`);
+  }
 
   // Derive KB index: unique slug prefixes found across all results
   const prefixes = [...new Set(allSources.map(s => s.slug.split("/")[0]))].sort();
@@ -386,21 +401,27 @@ const server = http.createServer(async (req, res) => {
 
     let body = "";
     let bodyBytes = 0;
+    let tooLarge = false;
     const MAX_BODY = 1024 * 512;
     req.on("data", c => {
+      if (tooLarge) return;
       bodyBytes += c.length;
       if (bodyBytes > MAX_BODY) {
-        req.destroy();
+        tooLarge = true;
         res.writeHead(413, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "request_too_large" }));
+        req.resume(); // drain remaining data; do not destroy socket
         return;
       }
       body += c;
     });
     req.on("end", async () => {
+      if (tooLarge) return;
       try {
         const rpc = JSON.parse(body);
         let result;
+        let isError = false;
+        let rpcError = null;
 
         if (rpc.method === "initialize") {
           result = {
@@ -416,23 +437,34 @@ const server = http.createServer(async (req, res) => {
             if (!args?.task) {
               result = { content: [{ type: "text", text: "Error: task is required." }] };
             } else {
-              const briefing = await brainConcierge(
-                args.task,
-                args.agent_role,
-                args.depth,
-                args.include_slug_prefixes
-              );
-              result = { content: [{ type: "text", text: briefing }] };
+              try {
+                const briefing = await brainConcierge(
+                  args.task,
+                  args.agent_role,
+                  args.depth,
+                  args.include_slug_prefixes
+                );
+                result = { content: [{ type: "text", text: briefing }] };
+              } catch (e) {
+                isError = true;
+                rpcError = { code: -32603, message: e.message };
+              }
             }
           } else {
             result = { content: [{ type: "text", text: `Unknown tool: ${name}` }] };
           }
         } else {
-          result = { error: `Unknown method: ${rpc.method}` };
+          // Unknown JSON-RPC method — return protocol-level error, not a result
+          isError = true;
+          rpcError = { code: -32601, message: `Method not found: ${rpc.method}` };
         }
 
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id ?? null, result }));
+        if (isError) {
+          res.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id ?? null, error: rpcError }));
+        } else {
+          res.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id ?? null, result }));
+        }
       } catch (e) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: e.message } }));
