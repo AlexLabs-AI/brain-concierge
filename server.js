@@ -9,9 +9,9 @@
  *   GBRAIN_URL        — GBrain HTTP MCP server URL (e.g. http://localhost:7350)
  *   GBRAIN_TOKEN      — Bearer token for GBrain HTTP server
  *   CONCIERGE_TOKEN   — Bearer token agents use to authenticate with this server
- *   ANTHROPIC_API_KEY — Anthropic API key for synthesis (Haiku)
+ *   ANTHROPIC_API_KEY — Anthropic API key for synthesis
  *   PORT              — Port to listen on (default: 7351)
- *   SYNTHESIS_MODEL   — Model for synthesis (default: claude-haiku-4-5)
+ *   SYNTHESIS_MODEL   — Model for synthesis (default: claude-sonnet-4-6)
  */
 
 require("dotenv").config();
@@ -27,7 +27,7 @@ const GBRAIN_TOKEN = process.env.GBRAIN_TOKEN || "";
 const CONCIERGE_TOKEN = process.env.CONCIERGE_TOKEN || "";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const PORT = parseInt(process.env.PORT || "7351", 10);
-const SYNTHESIS_MODEL = process.env.SYNTHESIS_MODEL || "claude-haiku-4-5";
+const SYNTHESIS_MODEL = process.env.SYNTHESIS_MODEL || "claude-sonnet-4-6";
 const MAX_RESULTS = parseInt(process.env.MAX_RESULTS || "8", 10);
 const QUERY_LIMIT = parseInt(process.env.QUERY_LIMIT || "5", 10);
 
@@ -62,7 +62,6 @@ async function gbrainCall(toolName, args) {
       res.on("end", () => {
         try {
           // GBrain HTTP MCP server returns SSE format: "event: message\ndata: {...}"
-          // Strip the SSE envelope before parsing JSON
           const jsonStr = data.replace(/^event:\s*\w+\s*\ndata:\s*/m, "").trim();
           const parsed = JSON.parse(jsonStr);
           if (parsed.error) {
@@ -80,6 +79,55 @@ async function gbrainCall(toolName, args) {
     req.write(body);
     req.end();
   });
+}
+
+// ─── GBrain query with source extraction ──────────────────────────────────────
+
+async function gbrainQuery(args) {
+  // Returns { text: string, sources: [{slug, title, score}] }
+  const rawText = await gbrainCall("query", args);
+
+  // GBrain may return JSON-serialized results — try to parse for structured source data
+  let sources = [];
+  let text = rawText;
+
+  try {
+    const parsed = JSON.parse(rawText);
+    if (Array.isArray(parsed)) {
+      sources = parsed
+        .filter(r => r.slug)
+        .map(r => ({ slug: r.slug, title: r.title || r.slug, score: r.score || null }));
+      text = parsed.map(r => r.chunk_text || r.text || "").filter(Boolean).join("\n\n");
+      return { text, sources };
+    }
+  } catch {
+    // Not JSON — attempt to extract slug patterns from formatted text
+    const slugPattern = /\b([a-z][a-z0-9-]+(?:\/[a-z][a-z0-9-]+)+)\b/g;
+    const matches = [...new Set((rawText.match(slugPattern) || []))];
+    sources = matches.slice(0, 10).map(slug => ({ slug, title: null, score: null }));
+  }
+
+  return { text, sources };
+}
+
+// ─── GBrain corpus stats ──────────────────────────────────────────────────────
+
+async function gbrainStats() {
+  // Returns basic KB stats for the kb_index section
+  try {
+    const raw = await gbrainCall("get_stats", {});
+    try {
+      const parsed = JSON.parse(raw);
+      return {
+        page_count: parsed.page_count || parsed.pages || null,
+        chunk_count: parsed.chunk_count || parsed.chunks || null
+      };
+    } catch {
+      return { raw: raw.slice(0, 200) };
+    }
+  } catch {
+    return null;
+  }
 }
 
 // ─── Anthropic synthesis ──────────────────────────────────────────────────────
@@ -177,7 +225,6 @@ Return one query per line. No numbering, no explanation. Focus on different angl
     });
     return result.split("\n").map(q => q.trim()).filter(q => q.length > 0).slice(0, QUERY_LIMIT);
   } catch {
-    // Fallback: use task description directly
     return [task];
   }
 }
@@ -185,36 +232,50 @@ Return one query per line. No numbering, no explanation. Focus on different angl
 // ─── Brain Concierge core ─────────────────────────────────────────────────────
 
 async function brainConcierge(task, agentRole, depth, includeSlugPrefixes) {
-  // 1. Generate parallel search queries
-  const queries = await generateQueries(task, agentRole);
+  // Run query generation and KB stats fetch in parallel
+  const [queries, stats] = await Promise.all([
+    generateQueries(task, agentRole),
+    gbrainStats()
+  ]);
 
-  // 2. Run queries in parallel against GBrain
+  // Build query args
   const limit = depth === "deep" ? Math.ceil(MAX_RESULTS * 1.5) : MAX_RESULTS;
-  const args = includeSlugPrefixes?.length
+  const buildArgs = includeSlugPrefixes?.length
     ? (q) => ({ query: q, limit, include_slug_prefixes: includeSlugPrefixes })
     : (q) => ({ query: q, limit });
 
+  // Run all queries in parallel with structured source extraction
   const results = await Promise.allSettled(
-    queries.map(q => gbrainCall("query", args(q)))
+    queries.map(q => gbrainQuery(buildArgs(q)))
   );
 
-  // Check if all queries failed (vs just returning no results)
   const allFailed = results.every(r => r.status === "rejected");
   if (allFailed) {
     const firstError = results[0].reason?.message || "Unknown error";
     return `Retrieval error: all GBrain queries failed. First error: ${firstError}\n\nCheck that the GBrain server is reachable and GBRAIN_TOKEN is valid.`;
   }
 
-  // 3. Deduplicate and collect chunks
-  const seen = new Set();
+  // Deduplicate chunks and collect all sources
+  const seenText = new Set();
+  const seenSlugs = new Set();
   const chunks = [];
+  const allSources = [];
+
   for (const r of results) {
     if (r.status === "fulfilled" && r.value) {
-      // Simple dedup: skip if we've seen >80% of this content before
-      const key = r.value.slice(0, 120);
-      if (!seen.has(key)) {
-        seen.add(key);
-        chunks.push(r.value);
+      const { text, sources } = r.value;
+      if (text) {
+        const key = text.slice(0, 120);
+        if (!seenText.has(key)) {
+          seenText.add(key);
+          chunks.push(text);
+        }
+      }
+      for (const src of (sources || [])) {
+        if (src.slug && !seenSlugs.has(src.slug)) {
+          seenSlugs.add(src.slug);
+          allSources.push(src);
+        }
       }
     }
   }
@@ -223,11 +284,43 @@ async function brainConcierge(task, agentRole, depth, includeSlugPrefixes) {
     return "No relevant knowledge found for this task. The knowledge base may not have coverage in this area yet.";
   }
 
-  // 4. Synthesize
-  const combined = chunks.join("\n\n---\n\n").slice(0, 12000); // cap context
+  // Synthesize briefing
+  const combined = chunks.join("\n\n---\n\n").slice(0, 12000);
   const briefing = await synthesize(task, agentRole, combined);
 
-  return `# Knowledge Briefing\n**Task:** ${task}${agentRole ? `\n**Role:** ${agentRole}` : ""}\n\n---\n\n${briefing}\n\n---\n*Queries run: ${queries.length} | Sources: ${chunks.length}*`;
+  // Derive KB index: unique slug prefixes found across all results
+  const prefixes = [...new Set(allSources.map(s => s.slug.split("/")[0]))].sort();
+
+  // ─── Format output ────────────────────────────────────────────────────────
+
+  const header = [
+    `# Knowledge Briefing`,
+    `**Task:** ${task}`,
+    agentRole ? `**Role:** ${agentRole}` : null,
+  ].filter(Boolean).join("\n");
+
+  const sourcesSection = allSources.length > 0
+    ? [
+        `## Sources`,
+        ...allSources.slice(0, 20).map(s =>
+          s.title && s.title !== s.slug
+            ? `- \`${s.slug}\` — ${s.title}`
+            : `- \`${s.slug}\``
+        )
+      ].join("\n")
+    : `## Sources\n*Source slugs not available in this GBrain response format.*`;
+
+  const kbIndexLines = [
+    `## KB Index`,
+    stats?.page_count ? `**Corpus:** ${stats.page_count.toLocaleString()} pages | ${(stats.chunk_count || 0).toLocaleString()} chunks` : null,
+    `**Queries run:** ${queries.length} | **Unique sources found:** ${allSources.length}`,
+    prefixes.length > 0 ? `**Prefixes in results:** ${prefixes.join(", ")}` : null,
+    ``,
+    `**Queries used:**`,
+    ...queries.map(q => `- ${q}`)
+  ].filter(s => s !== null).join("\n");
+
+  return [header, `---`, briefing, `---`, sourcesSection, `---`, kbIndexLines].join("\n\n");
 }
 
 // ─── MCP tool definitions ─────────────────────────────────────────────────────
@@ -235,7 +328,7 @@ async function brainConcierge(task, agentRole, depth, includeSlugPrefixes) {
 const TOOLS = [
   {
     name: "brain_concierge",
-    description: "Task-first knowledge retrieval. Describe what you are about to do — get back a synthesized knowledge briefing. Use this before any significant task instead of manual search.",
+    description: "Task-first knowledge retrieval. Describe what you are about to do — get back a synthesized briefing, the source pages it drew from, and a map of the KB corpus. Use this before any significant task instead of manual search.",
     inputSchema: {
       type: "object",
       properties: {
@@ -280,7 +373,7 @@ const server = http.createServer(async (req, res) => {
   // Health check (no auth required)
   if (req.method === "GET" && req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", version: "1.0.0", tools: TOOLS.map(t => t.name) }));
+    res.end(JSON.stringify({ status: "ok", version: "1.1.0", tools: TOOLS.map(t => t.name) }));
     return;
   }
 
@@ -293,7 +386,7 @@ const server = http.createServer(async (req, res) => {
 
     let body = "";
     let bodyBytes = 0;
-    const MAX_BODY = 1024 * 512; // 512 KB — more than enough for any MCP JSON-RPC message
+    const MAX_BODY = 1024 * 512;
     req.on("data", c => {
       bodyBytes += c.length;
       if (bodyBytes > MAX_BODY) {
@@ -313,7 +406,7 @@ const server = http.createServer(async (req, res) => {
           result = {
             protocolVersion: "2024-11-05",
             capabilities: { tools: {} },
-            serverInfo: { name: "brain-concierge", version: "1.0.0" }
+            serverInfo: { name: "brain-concierge", version: "1.1.0" }
           };
         } else if (rpc.method === "tools/list" || rpc.method === "notifications/initialized") {
           result = { tools: TOOLS };

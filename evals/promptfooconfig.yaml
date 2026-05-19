@@ -1,0 +1,168 @@
+# Brain Concierge Eval Suite
+# Compares brain_concierge output against raw GBrain query for the same task inputs.
+#
+# Run: npx promptfoo eval --config evals/promptfooconfig.yaml
+# Requires: GBRAIN_URL, GBRAIN_TOKEN, CONCIERGE_URL, CONCIERGE_TOKEN, ANTHROPIC_API_KEY in .env
+
+description: "Brain Concierge vs. Raw GBrain Baseline"
+
+# ─── Providers ────────────────────────────────────────────────────────────────
+
+providers:
+  # Provider A: Brain Concierge (brain_concierge tool)
+  - id: brain-concierge
+    label: "brain_concierge (task-first)"
+    config:
+      type: http
+      url: "{{ env.CONCIERGE_URL }}/mcp"
+      method: POST
+      headers:
+        Content-Type: application/json
+        Authorization: "Bearer {{ env.CONCIERGE_TOKEN }}"
+      body: |
+        {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "tools/call",
+          "params": {
+            "name": "brain_concierge",
+            "arguments": {
+              "task": "{{task}}",
+              "agent_role": "{{agent_role}}"
+            }
+          }
+        }
+      transformResponse: |
+        JSON.parse(output).result?.content?.[0]?.text || output
+
+  # Provider B: Raw GBrain query (baseline — same task string piped directly)
+  - id: gbrain-baseline
+    label: "gbrain query (raw baseline)"
+    config:
+      type: http
+      url: "{{ env.GBRAIN_URL }}/mcp"
+      method: POST
+      headers:
+        Content-Type: application/json
+        Authorization: "Bearer {{ env.GBRAIN_TOKEN }}"
+      body: |
+        {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "tools/call",
+          "params": {
+            "name": "query",
+            "arguments": {
+              "query": "{{task}}",
+              "limit": 8
+            }
+          }
+        }
+      transformResponse: |
+        JSON.parse(output).result?.content?.[0]?.text || output
+
+# ─── Default vars ─────────────────────────────────────────────────────────────
+
+defaultTest:
+  vars:
+    agent_role: "operational AI agent"
+
+# ─── Test cases ───────────────────────────────────────────────────────────────
+# Each test: a real task an AlexLabs agent would perform.
+# Scoring: LLM-as-judge for relevance, completeness, and actionability.
+
+tests:
+
+  # ── Agentic engineering ───────────────────────────────────────────────────
+
+  - description: "Agent architecture — designing a new agent"
+    vars:
+      task: "I am Atlas Voss, Chief Agentic Engineer. I am about to design a new customer success agent for the Lifeforce Financial fleet. My goal is to understand what agent patterns, memory schemas, and tool sets are appropriate for a CS agent in this operating system."
+      agent_role: "agentic engineer"
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant knowledge about agent architecture, memory design, or tool selection. Score higher if it includes specific patterns or prior decisions relevant to Lifeforce or CS agents."
+      - type: llm-rubric
+        value: "Response does not contain irrelevant or hallucinated information about the task domain."
+
+  - description: "Agent architecture — context window economics"
+    vars:
+      task: "I am designing the system prompt for a new research agent. I need to decide what belongs in SOUL.md versus MEMORY.md versus the knowledge base versus session context. My goal is to apply the correct context window economics."
+      agent_role: "agentic engineer"
+    assert:
+      - type: llm-rubric
+        value: "Response surfaces relevant principles about context window design, token economics, or memory architecture. Bonus if it references thin harness / fat skills or Garry Tan's architecture patterns."
+      - type: contains
+        value: "context"
+
+  # ── Knowledge retrieval ───────────────────────────────────────────────────
+
+  - description: "KB retrieval — multi-agent coordination pattern"
+    vars:
+      task: "I need to decide between an orchestrator-subagent pattern and a peer agent pattern for a new parallel content publishing workflow. My goal is to pick the right coordination pattern for this use case."
+      agent_role: "agentic engineer"
+    assert:
+      - type: llm-rubric
+        value: "Response explains orchestrator vs. peer agent tradeoffs or provides relevant pattern guidance. Higher score if it includes concrete criteria for choosing between patterns."
+
+  # ── Infrastructure / ops ──────────────────────────────────────────────────
+
+  - description: "Infrastructure — GBrain setup and configuration"
+    vars:
+      task: "I am about to configure a new GBrain source for a brand that was recently added to the AlexLabs fleet. My goal is to understand the correct setup steps, source registration process, and any known gotchas."
+      agent_role: "infrastructure engineer"
+    assert:
+      - type: llm-rubric
+        value: "Response contains actionable information about GBrain source setup. Higher score if it includes specific commands, configuration fields, or known issues."
+
+  - description: "Infrastructure — OpenClaw deployment"
+    vars:
+      task: "I am preparing a deployment brief for a new agent on a headless Mac Mini. I need to know the standard OpenClaw configuration, node paths, browser CDP setup requirements, and context pruning settings."
+      agent_role: "agentic engineer"
+    assert:
+      - type: llm-rubric
+        value: "Response surfaces relevant OpenClaw deployment information. Higher score if it includes specific config paths, node paths, or browser setup steps."
+
+  # ── Business / brand context ──────────────────────────────────────────────
+
+  - description: "Brand context — Lifeforce Financial"
+    vars:
+      task: "I am designing an agent for Lifeforce Financial. Before I start, I need to understand what this brand does, its operating model, the agent fleet that already exists for it, and any design constraints."
+      agent_role: "agentic engineer"
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant brand context about Lifeforce Financial. Higher score if it describes the business model, fleet structure, or prior agent design decisions."
+
+  - description: "Brand context — Rockport Studios"
+    vars:
+      task: "I am designing a content agent for Rockport Studios. I need to understand the brand's operating model, content strategy, existing agents, and what knowledge is available in the Rockport knowledge silo."
+      agent_role: "agentic engineer"
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant information about Rockport Studios. Higher score if it includes content strategy, fleet structure, or available knowledge."
+
+  # ── Adversarial / edge cases ──────────────────────────────────────────────
+
+  - description: "Edge case — task with no KB coverage"
+    vars:
+      task: "I am about to design a quantum computing error correction system using topological qubits. My goal is to identify prior decisions and known patterns in our knowledge base."
+      agent_role: "quantum engineer"
+    assert:
+      - type: llm-rubric
+        value: "Response correctly identifies that the KB has no relevant coverage for this task, rather than hallucinating irrelevant content."
+
+  - description: "Edge case — vague task description"
+    vars:
+      task: "Help me with agents."
+      agent_role: "engineer"
+    assert:
+      - type: llm-rubric
+        value: "Response attempts to surface general agent-relevant knowledge rather than failing entirely. Should still be more useful than no context."
+
+# ─── Evaluation config ────────────────────────────────────────────────────────
+
+evaluateOptions:
+  maxConcurrency: 2
+  delay: 1000  # ms between requests — respect rate limits
+
+sharing: false
