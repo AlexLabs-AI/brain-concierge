@@ -99,12 +99,35 @@ brain_concierge(task="<what you are about to do and why>")
 - `depth` (optional) — How deep to go on retrieval (default: standard)
 - `include_slug_prefixes` (optional) — Pull from a specific knowledge silo (e.g. `["rockport", "lifeforce"]`)
 
-**Example:**
+**Examples:**
+
 ```
+# Engineering agent before an architecture decision
 brain_concierge(
-  task="I am about to design a new agent for customer onboarding. 
-        My goal is to define the right escalation thresholds and tool set.",
-  agent_role="agentic engineer"
+  task="I am about to migrate our authentication system from session-based 
+        to JWT tokens. My goal is to identify integration risks and ensure 
+        nothing breaks for existing API consumers.",
+  agent_role="backend engineer"
+)
+```
+
+```
+# Sales agent before a high-stakes renewal call
+brain_concierge(
+  task="I am preparing for a renewal call with an enterprise customer who 
+        has raised pricing concerns. My goal is to handle the objection 
+        and retain the account without discounting.",
+  agent_role="account executive"
+)
+```
+
+```
+# Research agent starting a competitive analysis
+brain_concierge(
+  task="I am building a competitive positioning brief for a B2B SaaS product 
+        entering the healthcare compliance market. My goal is to identify 
+        gaps the incumbents are not addressing.",
+  agent_role="market analyst"
 )
 ```
 
