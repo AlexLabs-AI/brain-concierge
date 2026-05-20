@@ -16,6 +16,12 @@
   - Enables Weaviate, Pinecone, pgvector, Qdrant adapters
   - Makes Brain Concierge a pattern any team can adopt, not a GBrain-only plugin
   - GBrain remains the reference implementation; other backends are community adapters
+- **Downstream task quality eval** — the eval that actually maps to the core claim
+  - Two agent fleets, same task corpus: one with Brain Concierge, one with raw GBrain
+  - Score work product quality downstream, not retrieval precision
+  - Measures "did the briefing surface what the agent needed to do the job well" rather than "did retrieval hit the right page"
+  - This is the eval design that proves the unknown-unknowns claim empirically
+  - Supersedes the retrieval-precision benchmarks in evals/ which cannot capture the actual value
 - **`kb_index` standalone tool** — separate MCP tool that returns full corpus map (top tags, entity types, recent additions) without triggering a retrieval + synthesis cycle
 - **Streaming responses** — stream the briefing as it synthesizes rather than waiting for the full response
 
