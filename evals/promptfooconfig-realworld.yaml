@@ -1,0 +1,164 @@
+# Brain Concierge Real-World Eval — 10 cases
+#
+# The honest comparison: Brain Concierge (full pipeline) vs. GBrain as
+# agents actually use it — a short natural query returning raw chunks,
+# no synthesis, no LLM wrapping.
+#
+# GBrain queries are what an agent would realistically type given the task.
+# They're not distilled by an LLM — they're the kind of short phrase an
+# agent would naturally form.
+#
+# Run: promptfoo eval --config evals/promptfooconfig-realworld.yaml --env-file .env.eval
+# View: promptfoo view
+
+description: "Brain Concierge vs. Raw GBrain (real-world usage) — 10 cases"
+
+prompts:
+  - "{{task}}"
+
+providers:
+  # Provider A: Brain Concierge — full pipeline
+  - id: "http"
+    label: "brain_concierge (full pipeline)"
+    config:
+      url: "{{ env.CONCIERGE_URL }}/mcp"
+      method: POST
+      headers:
+        Content-Type: application/json
+        Accept: "application/json, text/event-stream"
+        Authorization: "Bearer {{ env.CONCIERGE_TOKEN }}"
+      body: >
+        {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "tools/call",
+          "params": {
+            "name": "brain_concierge",
+            "arguments": {
+              "task": "{{task}}",
+              "agent_role": "{{agent_role}}"
+            }
+          }
+        }
+      transformResponse: "json?.result?.content?.[0]?.text || text"
+
+  # Provider B: Raw GBrain — short natural query, raw chunks returned
+  # No synthesis. No LLM wrapping. This is GBrain as agents actually use it.
+  - id: "http"
+    label: "gbrain raw (natural short query)"
+    config:
+      url: "{{ env.GBRAIN_URL }}/mcp"
+      method: POST
+      headers:
+        Content-Type: application/json
+        Accept: "application/json, text/event-stream"
+        Authorization: "Bearer {{ env.GBRAIN_TOKEN }}"
+      body: >
+        {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "tools/call",
+          "params": {
+            "name": "query",
+            "arguments": {
+              "query": "{{gbrain_query}}",
+              "limit": 8
+            }
+          }
+        }
+      transformResponse: "file://gbrain-transform.js"
+
+defaultTest:
+  vars:
+    agent_role: "agentic engineer"
+
+# ─── 10 cases — each with a natural GBrain query an agent would type ──────────
+
+tests:
+
+  - description: "1. CS agent design for Lifeforce"
+    vars:
+      task: "I am Atlas Voss, Chief Agentic Engineer. I am about to design a new customer success agent for the Lifeforce Financial fleet. My goal is to understand what agent patterns, memory schemas, and tool sets are appropriate for a CS agent in this operating system."
+      gbrain_query: "customer success agent design patterns Lifeforce"
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant knowledge about agent architecture, memory design, or tool selection for a CS agent. Higher score for actionable, synthesized content. Lower score for raw data dumps or irrelevant chunks."
+
+  - description: "4. Configuring a GBrain source"
+    vars:
+      task: "I am about to configure a new GBrain source for a brand recently added to the AlexLabs fleet. My goal is to understand the correct setup steps, source registration process, and any known gotchas."
+      gbrain_query: "GBrain source setup registration fleet configuration"
+    assert:
+      - type: llm-rubric
+        value: "Response contains actionable information about GBrain source setup. Higher score for synthesized, actionable guidance. Lower score for raw chunks an agent would still need to interpret."
+
+  - description: "6. Lifeforce Financial brand context"
+    vars:
+      task: "I am designing an agent for Lifeforce Financial. Before I start, I need to understand what this brand does, its operating model, the agent fleet that exists for it, and any design constraints I should know about."
+      gbrain_query: "Lifeforce Financial brand operating model agent fleet"
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant brand context about Lifeforce Financial. Higher score for synthesized, actionable briefing. Lower score for raw data that needs further interpretation."
+
+  - description: "7. Rockport Studios brand context"
+    vars:
+      task: "I am designing a content agent for Rockport Studios. I need to understand the brand's operating model, content strategy, existing agents, and what knowledge is available in the Rockport knowledge silo."
+      gbrain_query: "Rockport Studios content strategy brand agent"
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant information about Rockport Studios. Higher score for synthesized briefing. Lower score for raw chunks."
+
+  - description: "10. MCP tool reliability"
+    vars:
+      task: "I am about to build a set of MCP tool integrations for an agent fleet. My goal is to understand best practices for making tool-calling reliable, handling errors gracefully, and ensuring tool calls are auditable."
+      gbrain_query: "MCP tool reliability error handling best practices"
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant guidance on MCP tool reliability. Higher score for synthesized, actionable guidance. Lower score for raw chunks."
+
+  - description: "12. Resolver pattern"
+    vars:
+      task: "I need to design the resolver layer for an agent that handles multiple task types. My goal is to understand how resolvers work, how to build a routing table that loads the right context at the right time, and common failure modes."
+      gbrain_query: "resolver routing table agent context loading"
+    assert:
+      - type: llm-rubric
+        value: "Response explains the resolver pattern. Higher score for synthesized guidance with concrete implementation details. Lower score for raw chunks the agent must still interpret."
+
+  - description: "16. MEMORY.md design for CFO agent"
+    vars:
+      task: "I am designing the MEMORY.md for a new CFO agent. My goal is to decide what operational facts belong in long-term memory, how to structure the admission gate, and what should never be in MEMORY.md."
+      gbrain_query: "MEMORY.md design long-term memory admission agent"
+    assert:
+      - type: llm-rubric
+        value: "Response surfaces relevant principles about MEMORY.md design. Higher score for synthesized, actionable guidance. Lower score for raw data."
+
+  - description: "17. Dragon Hall brand context"
+    vars:
+      task: "I am about to design an agent for Dragon Hall. Before I begin, I need to understand what Dragon Hall is, what it does, what operating system it uses, and what knowledge exists in its knowledge silo."
+      gbrain_query: "Dragon Hall brand operating system knowledge"
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant context about Dragon Hall. Higher score for synthesized briefing. Lower score for raw chunks."
+
+  - description: "19. Zero KB coverage (adversarial)"
+    vars:
+      task: "I am about to design a quantum error correction system using topological qubits for a photonic quantum computer. My goal is to identify prior architectural decisions and patterns in our knowledge base."
+      gbrain_query: "quantum error correction topological qubits"
+      agent_role: "quantum computing engineer"
+    assert:
+      - type: llm-rubric
+        value: "Response correctly identifies that the KB has no relevant coverage, rather than hallucinating. Both providers should acknowledge the gap."
+
+  - description: "20. Vague task stress test"
+    vars:
+      task: "I need to do agent stuff and make things better."
+      gbrain_query: "agent improvement best practices"
+    assert:
+      - type: llm-rubric
+        value: "Response attempts to surface useful agent knowledge. Tests whether Brain Concierge's task expansion produces more useful output than a vague natural query to GBrain."
+
+evaluateOptions:
+  maxConcurrency: 1
+  delay: 2000
+
+sharing: false
