@@ -163,15 +163,15 @@ The synthesis step uses `claude-sonnet-4-6` by default for higher quality briefi
 
 ## Evals
 
-The `evals/` directory contains three Promptfoo eval configs benchmarking Brain Concierge against GBrain:
+The `evals/` directory contains Promptfoo eval configs for benchmarking Brain Concierge against GBrain across a range of real-world task types.
 
 | Config | Description |
 |--------|-------------|
 | `promptfooconfig.yaml` | 20-case eval, all task types |
-| `promptfooconfig-fair.yaml` | Fair baseline: GBrain + Sonnet distillation + synthesis |
-| `promptfooconfig-realworld.yaml` | Real-world baseline: GBrain with natural short queries, raw chunks |
+| `promptfooconfig-fair.yaml` | Baseline: GBrain + Sonnet distillation + synthesis |
+| `promptfooconfig-realworld.yaml` | Baseline: GBrain with natural short queries, raw chunks |
 
-**Key finding:** Brain Concierge is provably no worse than raw GBrain when agents know what to search for (4-2 with 4 ties). It's structurally better when they don't — the interface constraint ensures agents describe tasks instead of forming queries, surfacing knowledge they didn't know existed.
+Note: benchmarking task-first retrieval against query-first retrieval has a structural limitation — any controlled eval requires someone who already knows the corpus to write the test queries, which removes the blind condition that Brain Concierge is designed for. The evals are provided as a starting point; results should be interpreted with that constraint in mind.
 
 Run evals:
 ```bash

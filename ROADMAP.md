@@ -20,8 +20,7 @@
   - Two agent fleets, same task corpus: one with Brain Concierge, one with raw GBrain
   - Score work product quality downstream, not retrieval precision
   - Measures "did the briefing surface what the agent needed to do the job well" rather than "did retrieval hit the right page"
-  - This is the eval design that proves the unknown-unknowns claim empirically
-  - Supersedes the retrieval-precision benchmarks in evals/ which cannot capture the actual value
+  - Standard retrieval benchmarks cannot capture the value of task-first retrieval because any controlled test requires someone who already knows the corpus to write the test queries — removing the blind condition that makes the pattern valuable
 - **`kb_index` standalone tool** — separate MCP tool that returns full corpus map (top tags, entity types, recent additions) without triggering a retrieval + synthesis cycle
 - **Streaming responses** — stream the briefing as it synthesizes rather than waiting for the full response
 
