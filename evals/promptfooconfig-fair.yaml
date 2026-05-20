@@ -1,0 +1,131 @@
+# Brain Concierge Fair Eval — 10 cases with confirmed KB coverage
+#
+# Compares Brain Concierge vs. a fair GBrain baseline that uses the same
+# Sonnet synthesis model but distills the task to 2 focused queries instead
+# of Brain Concierge's 5-query expansion.
+#
+# This isolates: does multi-query task-first expansion beat 2-query distillation?
+#
+# Run: promptfoo eval --config evals/promptfooconfig-fair.yaml --env-file .env.eval
+# View: promptfoo view
+
+description: "Brain Concierge vs. Fair GBrain Baseline (10 cases, same synthesis model)"
+
+prompts:
+  - "{{task}}"
+
+providers:
+  # Provider A: Brain Concierge — full pipeline
+  - id: "http"
+    label: "brain_concierge (5-query expansion + synthesis)"
+    config:
+      url: "{{ env.CONCIERGE_URL }}/mcp"
+      method: POST
+      headers:
+        Content-Type: application/json
+        Accept: "application/json, text/event-stream"
+        Authorization: "Bearer {{ env.CONCIERGE_TOKEN }}"
+      body: >
+        {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "tools/call",
+          "params": {
+            "name": "brain_concierge",
+            "arguments": {
+              "task": "{{task}}",
+              "agent_role": "{{agent_role}}"
+            }
+          }
+        }
+      transformResponse: "json?.result?.content?.[0]?.text || text"
+
+  # Provider B: Fair GBrain baseline — Sonnet distills task to 2 queries,
+  # runs GBrain retrieval, synthesizes with same Sonnet model
+  - id: "file://gbrain-fair-provider.js"
+    label: "gbrain + sonnet distillation (2-query baseline)"
+
+defaultTest:
+  vars:
+    agent_role: "agentic engineer"
+
+# ─── 10 cases with confirmed KB coverage ──────────────────────────────────────
+
+tests:
+
+  - description: "1. CS agent design for Lifeforce"
+    vars:
+      task: "I am Atlas Voss, Chief Agentic Engineer. I am about to design a new customer success agent for the Lifeforce Financial fleet. My goal is to understand what agent patterns, memory schemas, and tool sets are appropriate for a CS agent in this operating system."
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant knowledge about agent architecture, memory design, or tool selection. Higher score if it surfaces patterns or prior decisions relevant to Lifeforce or CS agents."
+
+  - description: "4. Configuring a new GBrain source"
+    vars:
+      task: "I am about to configure a new GBrain source for a brand recently added to the AlexLabs fleet. My goal is to understand the correct setup steps, source registration process, and any known gotchas."
+    assert:
+      - type: llm-rubric
+        value: "Response contains actionable information about GBrain source setup. Higher score for specific commands, configuration fields, or known issues."
+
+  - description: "6. Lifeforce Financial brand context"
+    vars:
+      task: "I am designing an agent for Lifeforce Financial. Before I start, I need to understand what this brand does, its operating model, the agent fleet that exists for it, and any design constraints I should know about."
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant brand context about Lifeforce Financial. Higher score for business model, fleet structure, or prior design decisions."
+
+  - description: "7. Rockport Studios brand and content strategy"
+    vars:
+      task: "I am designing a content agent for Rockport Studios. I need to understand the brand's operating model, content strategy, existing agents, and what knowledge is available in the Rockport knowledge silo."
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant information about Rockport Studios. Higher score for content strategy, fleet structure, or available knowledge."
+
+  - description: "10. MCP tool reliability and error handling"
+    vars:
+      task: "I am about to build a set of MCP tool integrations for an agent fleet. My goal is to understand best practices for making tool-calling reliable, handling errors gracefully, and ensuring tool calls are auditable."
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant guidance on MCP tool reliability, error handling, or auditability patterns."
+
+  - description: "12. Resolver pattern for context routing"
+    vars:
+      task: "I need to design the resolver layer for an agent that handles multiple task types. My goal is to understand how resolvers work, how to build a routing table that loads the right context at the right time, and common failure modes."
+    assert:
+      - type: llm-rubric
+        value: "Response explains the resolver pattern, routing tables, or context loading strategy. Bonus for Garry Tan's resolver design or specific implementation patterns."
+
+  - description: "16. MEMORY.md design for a CFO agent"
+    vars:
+      task: "I am designing the MEMORY.md for a new CFO agent. My goal is to decide what operational facts belong in long-term memory, how to structure the admission gate, and what should never be in MEMORY.md."
+    assert:
+      - type: llm-rubric
+        value: "Response surfaces relevant principles about MEMORY.md design, memory admission criteria, or what belongs in long-term vs. ephemeral memory."
+
+  - description: "17. Dragon Hall brand context"
+    vars:
+      task: "I am about to design an agent for Dragon Hall. Before I begin, I need to understand what Dragon Hall is, what it does, what operating system it uses, and what knowledge exists in its knowledge silo."
+    assert:
+      - type: llm-rubric
+        value: "Response contains relevant context about Dragon Hall. Higher score for business model, operating system, or available knowledge."
+
+  - description: "19. Edge case — zero KB coverage (adversarial)"
+    vars:
+      task: "I am about to design a quantum error correction system using topological qubits for a photonic quantum computer. My goal is to identify prior architectural decisions and patterns in our knowledge base."
+      agent_role: "quantum computing engineer"
+    assert:
+      - type: llm-rubric
+        value: "Response correctly identifies that the KB has no relevant coverage, rather than hallucinating plausible content. Correct behavior: acknowledge the gap clearly."
+
+  - description: "20. Edge case — vague task (stress test)"
+    vars:
+      task: "I need to do agent stuff and make things better."
+    assert:
+      - type: llm-rubric
+        value: "Response attempts to surface general agent-relevant knowledge rather than failing entirely. Tests whether multi-query expansion helps more than distillation on a vague input."
+
+evaluateOptions:
+  maxConcurrency: 1
+  delay: 2000
+
+sharing: false
