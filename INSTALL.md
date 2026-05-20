@@ -16,6 +16,8 @@
    ```
    Save the token output.
 
+4. An **Anthropic API key** — Brain Concierge uses Claude Sonnet for synthesis.
+
 ## Install
 
 ```bash
@@ -40,9 +42,10 @@ GBRAIN_TOKEN=your-gbrain-token-here
 PORT=7351
 CONCIERGE_TOKEN=your-concierge-bearer-token
 
-# LLM for synthesis (Anthropic Haiku recommended)
+# LLM for synthesis — Sonnet by default for high-quality briefings
+# Override with claude-haiku-4-5 for cost-sensitive or high-volume deployments
 ANTHROPIC_API_KEY=your-anthropic-key
-SYNTHESIS_MODEL=claude-haiku-4-5
+SYNTHESIS_MODEL=claude-sonnet-4-6
 ```
 
 ## Start
@@ -75,5 +78,50 @@ Add to your agent's MCP configuration:
 
 ```bash
 curl http://localhost:7351/health
-# Should return: {"status":"ok","tools":"brain_concierge,..."}
+# Returns: {"status":"ok","version":"1.1.0","tools":["brain_concierge"]}
 ```
+
+## What the response looks like
+
+Every `brain_concierge` call returns three layers:
+
+```
+# Knowledge Briefing
+**Task:** ...
+**Role:** ...
+
+---
+
+[Synthesized briefing — actionable knowledge for the task]
+
+---
+
+## Sources
+- `slug/page-name` — Page Title
+- `slug/another-page`
+
+---
+
+## KB Index
+**Corpus:** 7,211 pages | 113,723 chunks
+**Queries run:** 5 | **Unique sources found:** 12
+**Prefixes in results:** default, rockport, garrytan
+
+**Queries used:**
+- query one
+- query two
+...
+```
+
+The sources section gives full provenance. Agents that need primary sources can retrieve the slugs directly via GBrain. The KB index shows what was searched and what corpus areas were hit.
+
+## Model selection
+
+`SYNTHESIS_MODEL` defaults to `claude-sonnet-4-6`. Options:
+
+| Model | Use case |
+|-------|----------|
+| `claude-sonnet-4-6` | Default — best synthesis quality |
+| `claude-haiku-4-5` | Cost-sensitive or high-frequency deployments |
+
+Query expansion also uses `SYNTHESIS_MODEL`, so the same model generates both the search queries and the final briefing.

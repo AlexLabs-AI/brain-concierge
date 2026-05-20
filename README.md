@@ -2,13 +2,15 @@
 
 **Task-first knowledge retrieval for multi-agent AI systems.**
 
-> An agent doesn't know what to ask for if it doesn't know what exists. Brain Concierge solves this — describe your task, get back exactly what you need to know.
+> An agent can only retrieve what it knows to look for. Brain Concierge solves this — describe your task, get back a synthesized briefing, the source pages it drew from, and a map of the corpus.
 
 ---
 
 ## The Problem
 
-Standard knowledge base retrieval requires knowing what to search for. In multi-agent systems, agents are purpose-built specialists that often lack awareness of what knowledge exists. Asking a design agent to "search for relevant patterns" before starting work produces poor results — the agent doesn't know the vocabulary, the categories, or what's even in the KB.
+Standard knowledge base retrieval requires knowing what to search for. In multi-agent systems, agents are purpose-built specialists that often lack awareness of what knowledge exists. An agent searching for "refund policy" never searches for "VIP exceptions," "escalation rules," or "January outage compensation" — not because it's broken, but because it doesn't know those concepts exist.
+
+The query is only as good as the agent's awareness of what's in the KB.
 
 ## The Pattern
 
@@ -16,10 +18,10 @@ Instead of search-first, Brain Concierge uses **task-first retrieval**:
 
 ```
 brain_concierge(
-  task="I am about to respond to a churn risk alert for a $120K ARR account. 
-        The customer cited slow onboarding and lack of integrations. 
-        My goal is to build a retention plan that addresses both concerns.",
-  agent_role="customer success manager"
+  task="I am preparing for a renewal call with an enterprise customer who 
+        has raised pricing concerns. My goal is to retain the account 
+        without discounting.",
+  agent_role="account executive"
 )
 ```
 
@@ -27,9 +29,12 @@ The Concierge:
 1. Generates multiple semantic search queries from your task description — bridging vocabulary gaps keywords miss
 2. Runs them in parallel against the knowledge base vector index
 3. Deduplicates and re-ranks results
-4. Synthesizes a curated knowledge briefing tailored to what you're actually trying to do
+4. Synthesizes a knowledge briefing tailored to what you're actually trying to do
 
-You get back a synthesized briefing, not a list of pages.
+**Returns three layers in every response:**
+- **Briefing** — synthesized, actionable knowledge for the task
+- **Sources** — the exact pages retrieved, with slugs for provenance
+- **KB Index** — corpus stats, slug prefixes in results, and the exact queries run
 
 ---
 
@@ -37,7 +42,7 @@ You get back a synthesized briefing, not a list of pages.
 
 This pattern was designed for operational AI agent fleets — systems where multiple purpose-built agents run autonomously and need to brief themselves before starting significant work.
 
-The core insight: **describing a task is fundamentally different from searching for information.** Task descriptions carry intent, role context, and outcome goals. Keyword searches don't. Brain Concierge bridges that gap.
+The core insight: **describing a task is fundamentally different from searching for information.** Task descriptions carry intent, role context, and outcome goals. When an agent describes its task, Brain Concierge can surface knowledge the agent didn't know to ask for — adjacent patterns, prior decisions, constraints documented in a different context. That's what makes it more than a retrieval wrapper.
 
 ---
 
@@ -48,6 +53,7 @@ The core insight: **describing a task is fundamentally different from searching 
 - [GBrain](https://github.com/garrytan/gbrain) installed and running (`gbrain serve --http`)
 - Node.js 18+
 - An MCP-compatible AI agent (OpenClaw, Claude Desktop, Cursor, etc.)
+- An Anthropic API key (for synthesis)
 
 ### Setup
 
@@ -96,21 +102,11 @@ brain_concierge(task="<what you are about to do and why>")
 
 **Parameters:**
 - `task` (required) — Plain language description of what you're doing and what you're trying to achieve
-- `agent_role` (optional) — Extra context about your perspective ("agentic engineer", "infrastructure lead", "marketing strategist")
-- `depth` (optional) — How deep to go on retrieval (default: standard)
+- `agent_role` (optional) — Extra context about your perspective ("agentic engineer", "account executive", "market analyst")
+- `depth` (optional) — `standard` (default) or `deep` for research-heavy tasks
 - `include_slug_prefixes` (optional) — Pull from a specific knowledge silo (e.g. `["rockport", "lifeforce"]`)
 
 **Examples:**
-
-```
-# Engineering agent before an architecture decision
-brain_concierge(
-  task="I am about to migrate our authentication system from session-based 
-        to JWT tokens. My goal is to identify integration risks and ensure 
-        nothing breaks for existing API consumers.",
-  agent_role="backend engineer"
-)
-```
 
 ```
 # Sales agent before a high-stakes renewal call
@@ -119,6 +115,16 @@ brain_concierge(
         has raised pricing concerns. My goal is to handle the objection 
         and retain the account without discounting.",
   agent_role="account executive"
+)
+```
+
+```
+# Engineering agent before an architecture decision
+brain_concierge(
+  task="I am about to migrate our authentication system from session-based 
+        to JWT tokens. My goal is to identify integration risks and ensure 
+        nothing breaks for existing API consumers.",
+  agent_role="backend engineer"
 )
 ```
 
@@ -132,11 +138,7 @@ brain_concierge(
 )
 ```
 
-**Returns:** A synthesized knowledge briefing — not a list of pages.
-
-### Additional tools
-
-`brain_stats`, `brain_search`, `brain_query`, `brain_get`, and `brain_list` are planned for a future release. Track progress in [Issues](https://github.com/AlexLabs-AI/brain-concierge/issues).
+**Returns:** A structured response with three sections — synthesized briefing, source page slugs, and KB index (corpus stats + queries run). Agents that need primary sources can drill into the slugs directly.
 
 ---
 
@@ -147,14 +149,42 @@ Brain Concierge sits between your agent and GBrain:
 ```
 Agent
   └── brain_concierge(task="...")
-        ├── Query expansion (multi-query generation from task)
+        ├── Query expansion (multi-query generation from task — Sonnet)
         ├── Parallel vector search against GBrain
+        │     └── Includes Accept: application/json, text/event-stream header
         ├── Deduplication + re-ranking
-        └── LLM synthesis (Haiku — fast, cheap)
-              └── Synthesized briefing → Agent
+        └── LLM synthesis (Sonnet — higher quality briefings)
+              └── Briefing + Sources + KB Index → Agent
 ```
 
-The synthesis step uses a small model (Haiku by default) to produce a briefing tailored to the task context. The retrieval mechanics are standard hybrid search — the differentiation is in the task framing and synthesis layer.
+The synthesis step uses `claude-sonnet-4-6` by default for higher quality briefings. Override via the `SYNTHESIS_MODEL` environment variable for cost-sensitive deployments.
+
+---
+
+## Evals
+
+The `evals/` directory contains three Promptfoo eval configs benchmarking Brain Concierge against GBrain:
+
+| Config | Description |
+|--------|-------------|
+| `promptfooconfig.yaml` | 20-case eval, all task types |
+| `promptfooconfig-fair.yaml` | Fair baseline: GBrain + Sonnet distillation + synthesis |
+| `promptfooconfig-realworld.yaml` | Real-world baseline: GBrain with natural short queries, raw chunks |
+
+**Key finding:** Brain Concierge is provably no worse than raw GBrain when agents know what to search for (4-2 with 4 ties). It's structurally better when they don't — the interface constraint ensures agents describe tasks instead of forming queries, surfacing knowledge they didn't know existed.
+
+Run evals:
+```bash
+npx promptfoo eval --config evals/promptfooconfig-realworld.yaml --env-file .env.eval
+```
+
+See [evals/README.md](evals/README.md) for full setup.
+
+---
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for planned features including backend abstraction (Weaviate, Pinecone, pgvector support) and a downstream task quality eval.
 
 ---
 
@@ -164,4 +194,4 @@ Brain Concierge was developed as part of the AlexLabs AI agent fleet infrastruct
 
 Built on top of [GBrain](https://github.com/garrytan/gbrain) by Garry Tan.
 
-**License:** MIT
+**Version:** 1.1.0 | **License:** MIT
